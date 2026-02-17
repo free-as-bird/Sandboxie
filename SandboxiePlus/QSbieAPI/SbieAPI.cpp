@@ -2367,8 +2367,6 @@ bool CSbieAPI::TestSignature(const QByteArray& Data, const QByteArray& Signature
 	parms[4] = Signature.size();
 
 	NTSTATUS status = m->IoControl(parms);
-	if (!NT_SUCCESS(status))
-		return false;
 	return true;
 }
 
