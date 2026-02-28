@@ -61,7 +61,8 @@ void COptionsWindow::CreateGeneral()
 
 	ui.cmbBoxBorder->addItem(tr("Border disabled"), "off");
 	ui.cmbBoxBorder->addItem(tr("Show only when title is in focus"), "ttl");
-	ui.cmbBoxBorder->addItem(tr("Always show"), "on");
+	ui.cmbBoxBorder->addItem(tr("Always show (focused window only)"), "on");
+	ui.cmbBoxBorder->addItem(tr("Show for all windows in this box"), "all");
 
 
 	ui.cmbBoxType->addItem(theGUI->GetBoxIcon(CSandBoxPlus::eHardenedPlus), tr("Hardened Sandbox with Data Protection"), (int)CSandBoxPlus::eHardenedPlus);
@@ -163,6 +164,7 @@ void COptionsWindow::CreateGeneral()
 	connect(ui.btnBorderColor, SIGNAL(clicked(bool)), this, SLOT(OnPickColor()));
 	connect(ui.spinBorderWidth, SIGNAL(valueChanged(int)), this, SLOT(OnGeneralChanged()));
 	connect(ui.spinBorderAlpha, SIGNAL(valueChanged(int)), this, SLOT(OnGeneralChanged()));
+	connect(ui.chkBorderLabelOnly, SIGNAL(clicked(bool)), this, SLOT(OnGeneralChanged()));
 	connect(ui.chkShowForRun, SIGNAL(clicked(bool)), this, SLOT(OnGeneralChanged()));
 	connect(ui.chkPinToTray, SIGNAL(clicked(bool)), this, SLOT(OnGeneralChanged()));
 
@@ -269,7 +271,16 @@ void COptionsWindow::LoadGeneral()
 	ui.cmbBoxIndicator->setCurrentIndex(ui.cmbBoxIndicator->findData(BoxNameTitle.toLower()));
 
 	QStringList BorderCfg = m_pBox->GetText("BorderColor").split(",");
-	ui.cmbBoxBorder->setCurrentIndex(ui.cmbBoxBorder->findData(BorderCfg.size() >= 2 ? BorderCfg[1].toLower() : "on"));
+	bool borderLabelOnly = false;
+	{
+		QString rawMode = BorderCfg.size() >= 2 ? BorderCfg[1].toLower() : "on";
+		borderLabelOnly = rawMode.endsWith("lbl");
+		QString baseMode = borderLabelOnly ? rawMode.left(rawMode.length() - 3) : rawMode;
+		if (baseMode.isEmpty()) baseMode = "on";
+		int idx = ui.cmbBoxBorder->findData(baseMode);
+		if (idx < 0) idx = ui.cmbBoxBorder->findData("on");
+		ui.cmbBoxBorder->setCurrentIndex(idx);
+	}
 	SetBoxColor(QColor("#" + BorderCfg[0].mid(5, 2) + BorderCfg[0].mid(3, 2) + BorderCfg[0].mid(1, 2)));
 	int BorderWidth = BorderCfg.count() >= 3 ? BorderCfg[2].toInt() : 0;
 	if (!BorderWidth) BorderWidth = 6;
@@ -280,8 +291,14 @@ void COptionsWindow::LoadGeneral()
 	if (!alphaOk || m_BorderAlpha < 0 || m_BorderAlpha > 255)
 		m_BorderAlpha = 192;
 	ui.spinBorderAlpha->setValue(m_BorderAlpha);
-	QString labelMode = BorderCfg.count() >= 5 ? BorderCfg[4].toLower() : "down";
-	ui.cmbBoxBorderText->setCurrentIndex(ui.cmbBoxBorderText->findData(labelMode));
+	QString labelMode = BorderCfg.count() >= 5 ? BorderCfg[4].toLower() : "in";
+	int labelModeIndex = ui.cmbBoxBorderText->findData(labelMode);
+	if (labelModeIndex < 0)
+		labelModeIndex = ui.cmbBoxBorderText->findData("in");
+	ui.cmbBoxBorderText->setCurrentIndex(labelModeIndex);
+	// Set after cmbBoxBorderText is loaded: OnGeneralChanged (fired by spinners) reads
+	// cmbBoxBorderText to decide whether to uncheck, so we must apply this value last.
+	ui.chkBorderLabelOnly->setChecked(borderLabelOnly);
 
 	m_BoxIcon = m_pBox->GetText("BoxIcon");
 	m_pUseIcon->setChecked(!m_BoxIcon.isEmpty());
@@ -431,7 +448,11 @@ void COptionsWindow::SaveGeneral()
 
 	QStringList BorderCfg;
 	BorderCfg.append(QString("#%1%2%3").arg(m_BorderColor.blue(), 2, 16, QChar('0')).arg(m_BorderColor.green(), 2, 16, QChar('0')).arg(m_BorderColor.red(), 2, 16, QChar('0')));
-	BorderCfg.append(ui.cmbBoxBorder->currentData().toString());
+	{
+		QString baseMode = ui.cmbBoxBorder->currentData().toString();
+		bool labelOnly = ui.chkBorderLabelOnly->isChecked() && baseMode != "off";
+		BorderCfg.append(labelOnly ? baseMode + "lbl" : baseMode);
+	}
 	BorderCfg.append(QString::number(ui.spinBorderWidth->value()));
 	BorderCfg.append(QString::number(ui.spinBorderAlpha->value())); // Get alpha from spinner
 	BorderCfg.append(ui.cmbBoxBorderText->currentData().toString());
@@ -848,6 +869,14 @@ void COptionsWindow::OnDelCopyRule()
 
 void COptionsWindow::OnGeneralChanged()
 {
+	// Disable label-only checkbox when border is fully off, or when the label itself is disabled
+	// (label-only with no label = nothing to show)
+	bool borderActive = ui.cmbBoxBorder->currentData().toString() != "off";
+	bool labelEnabled = ui.cmbBoxBorderText->currentData().toString() != "no";
+	ui.chkBorderLabelOnly->setEnabled(borderActive && labelEnabled);
+	if (!borderActive || !labelEnabled)
+		ui.chkBorderLabelOnly->setChecked(false);
+
 	ui.lblCopyLimit->setEnabled(ui.chkCopyLimit->isChecked());
 	ui.txtCopyLimit->setEnabled(ui.chkCopyLimit->isChecked());
 	ui.lblCopyLimit->setText(tr("kilobytes (%1)").arg(FormatSize(ui.txtCopyLimit->text().toULongLong() * 1024)));

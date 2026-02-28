@@ -19,6 +19,7 @@
 #include "../Windows/SettingsWindow.h"
 #include "../Windows/CompressDialog.h"
 #include "../Windows/ExtractDialog.h"
+#include "../Windows/RenameSandboxDialog.h"
 #include "../BoxTransfer.h"
 
 #include "qt_windows.h"
@@ -1493,6 +1494,9 @@ void CSbieView::OnSandBoxAction(QAction* Action, const QList<CSandBoxPtr>& SandB
 	{
 		CSandBoxPtr pSrcBox = theAPI->GetBoxByName(SandBoxes.first()->GetName());
 		if (!pSrcBox) return;
+		QString sourceGroup = FindParent(pSrcBox->GetName());
+		QString sourceAlias = pSrcBox->GetText("BoxAlias");
+		bool sourceAliasActive = !sourceAlias.isEmpty() && pSrcBox->GetText("BoxAliasDisabled").isEmpty();
 
 		QString OldValue = pSrcBox->GetName().replace("_", " ");
 		QString Value = QInputDialog::getText(this, "Sandboxie-Plus", tr("Please enter a new name for the duplicated Sandbox."), QLineEdit::Normal, tr("%1 Copy").arg(OldValue));
@@ -1516,12 +1520,23 @@ void CSbieView::OnSandBoxAction(QAction* Action, const QList<CSandBoxPtr>& SandB
 			pDestBox = theAPI->GetBoxByName(Name);
 			if(!pDestBox)
 				Status = SB_ERR(SB_FailedCopyConf, QVariantList() << SandBoxes.first()->GetName() << tr("Not Created"));
+			else {
+				if (sourceAliasActive) {
+					QString copiedAlias = tr("%1 Copy").arg(sourceAlias);
+					pDestBox->SetText("BoxAlias", copiedAlias);
+					pDestBox->DelValue("BoxAliasDisabled");
+				}
+				MoveItem(Name, sourceGroup);
+				SaveBoxGrouping();
+			}
 		}
 
 		if (Action == m_pMenuDuplicateEx && !Status.IsError())
 		{
 			auto pSrcBoxEx = pSrcBox.objectCast<CSandBoxPlus>();
-			SB_PROGRESS Progress = pSrcBoxEx->CopyBox(pDestBox->GetFileRoot());
+			if (!pSrcBoxEx)
+				Status = SB_ERR(SB_FailedCopyConf, QVariantList() << SandBoxes.first()->GetName() << tr("Not Created"));
+			SB_PROGRESS Progress = pSrcBoxEx ? pSrcBoxEx->CopyBox(pDestBox->GetFileRoot()) : SB_PROGRESS(Status);
 
 			if (Progress.GetStatus() == OP_ASYNC)
 				Status = theGUI->AddAsyncOp(Progress.GetValue(), false, tr("Copying: %1").arg(Value));
@@ -1538,38 +1553,64 @@ void CSbieView::OnSandBoxAction(QAction* Action, const QList<CSandBoxPtr>& SandB
 	else if (Action == m_pMenuRename)
 	{
 		auto pBox = SandBoxes.first();
-		QString OldValue = pBox->GetName().replace("_", " ");
-		QString Alias = pBox->GetText("BoxAlias");
-		bool bAlias = false;
-		if (bAlias = !Alias.isEmpty())
-			OldValue = Alias;
-		bool bOk = false;
-		QString Value = QInputDialog::getText(this, "Sandboxie-Plus", bAlias ? tr("Please enter a new alias for the Sandbox.") : tr("Please enter a new name for the Sandbox."), QLineEdit::Normal, OldValue, &bOk);
-		if (!bOk || Value == OldValue)
-			return;
-		if (!Value.isEmpty() && !TestNameAndWarn(Value))
+		QString oldNameDisplay = pBox->GetName().replace("_", " ");
+		QString oldAliasDisabledValue = pBox->GetText("BoxAliasDisabled");
+		QString oldAliasNormalValue = pBox->GetText("BoxAlias");
+		QString oldAlias = !oldAliasDisabledValue.isEmpty() ? oldAliasDisabledValue : oldAliasNormalValue;
+		bool oldAliasDisabled = !oldAliasDisabledValue.isEmpty();
+		bool hasAliasSetting = !oldAliasDisabledValue.isEmpty() || !oldAliasNormalValue.isEmpty();
+
+		CRenameSandboxDialog dlg(oldNameDisplay, oldAlias, oldAliasDisabled, hasAliasSetting, this);
+		if (theGUI->SafeExec(&dlg) != QDialog::Accepted)
 			return;
 
-		bool bError = false;
-		if (bAlias || (bError = CSbieAPI::ValidateName(QString(Value).replace(" ", "_")).IsError()))
+		QString newNameDisplay = dlg.GetBoxName();
+		QString newAlias = dlg.GetAlias();
+		bool newAliasDisabled = dlg.IsAliasDisabled();
+
+		if (newNameDisplay.isEmpty())
+			return;
+
+		QString oldName = oldNameDisplay.replace(" ", "_");
+		QString newName = newNameDisplay.replace(" ", "_");
+
+		if (newName.compare(oldName, Qt::CaseInsensitive) != 0)
 		{
-			if (!bAlias && QMessageBox::question(this, "Sandboxie-Plus", tr("The entered name is not valid, do you want to set it as an alias instead?"), QMessageBox::Yes, QMessageBox::No) != QMessageBox::Yes)
+			if (!TestNameAndWarn(newNameDisplay))
 				return;
-			if (Value.isEmpty()) pBox->DelValue("BoxAlias");
-			else pBox->SetText("BoxAlias", Value);
-			pBox->UpdateDetails();
+			SB_STATUS validateStatus = CSbieAPI::ValidateName(newName);
+			if (validateStatus.IsError()) {
+				theGUI->CheckResults(QList<SB_STATUS>() << validateStatus, this);
+				return;
+			}
 		}
-		else
+
+		if (newAlias.isEmpty()) {
+			pBox->DelValue("BoxAlias");
+			pBox->DelValue("BoxAliasDisabled");
+		}
+		else if (newAliasDisabled) {
+			pBox->DelValue("BoxAlias");
+			pBox->SetText("BoxAliasDisabled", newAlias);
+		}
+		else {
+			pBox->SetText("BoxAlias", newAlias);
+			pBox->DelValue("BoxAliasDisabled");
+		}
+
+		if (newName.compare(oldName, Qt::CaseInsensitive) != 0)
 		{
-			SB_STATUS Status = pBox->RenameBox(Value.replace(" ", "_"));
+			SB_STATUS Status = pBox->RenameBox(newName);
 			if (!Status.IsError())
 			{
-				RenameItem(OldValue.replace(" ", "_"), Value.replace(" ", "_"));
-				if (theAPI->GetGlobalSettings()->GetText("DefaultBox", "DefaultBox").compare(OldValue.replace(" ", "_"), Qt::CaseInsensitive) == 0)
-					theAPI->GetGlobalSettings()->SetText("DefaultBox", Value.replace(" ", "_"));
+				RenameItem(oldName, newName);
+				if (theAPI->GetGlobalSettings()->GetText("DefaultBox", "DefaultBox").compare(oldName, Qt::CaseInsensitive) == 0)
+					theAPI->GetGlobalSettings()->SetText("DefaultBox", newName);
 			}
 			Results.append(Status);
 		}
+		else
+			pBox->UpdateDetails();
 
 		SaveBoxGrouping();
 	}
@@ -1928,7 +1969,8 @@ void CSbieView::OnDoubleClicked(const QModelIndex& index)
 	CSandBoxPtr pBox = m_pSbieModel->GetSandBox(ModelIndex);
 
 	if (index.column() == CSbieModel::ePath) {
-		OnSandBoxAction(m_pMenuExplore, QList<CSandBoxPtr>() << pBox);
+		if (!pBox.isNull())
+			OnSandBoxAction(m_pMenuExplore, QList<CSandBoxPtr>() << pBox);
 		return;
 	}
 
@@ -2139,6 +2181,32 @@ void CSbieView::OnMenuContextAction()
 	}
 }
 
+static QIcon CSbieView__GetCachedWindowsIcon(const QString& iconFile, int iconIndex, QMap<QString, QIcon>& cache)
+{
+	QString cacheKey = iconFile + "|" + QString::number(iconIndex);
+	auto it = cache.constFind(cacheKey);
+	if (it != cache.constEnd())
+		return it.value();
+
+	QIcon icon;
+	if (QFile::exists(iconFile))
+		icon = LoadWindowsIcon(iconFile, iconIndex);
+
+	cache.insert(cacheKey, icon);
+	return icon;
+}
+
+static QIcon CSbieView__GetCachedFileIcon(const QString& filePath, QFileIconProvider& iconProvider, QMap<QString, QIcon>& cache)
+{
+	auto it = cache.constFind(filePath);
+	if (it != cache.constEnd())
+		return it.value();
+
+	QIcon icon = iconProvider.icon(QFileInfo(filePath));
+	cache.insert(filePath, icon);
+	return icon;
+}
+
 void CSbieView::UpdateStartMenu(CSandBoxPlus* pBoxEx)
 {
 	foreach(const CSandBoxPlus::SLink& Link, pBoxEx->GetStartMenu())
@@ -2150,12 +2218,11 @@ void CSbieView::UpdateStartMenu(CSandBoxPlus* pBoxEx)
 		if(Link.IconIndex == -1)
 			Icon = theGUI->GetIcon("Internet");
 		else if (!Link.Icon.isEmpty()) {
-			if(QFile::exists(Link.Icon))
-				Icon = LoadWindowsIcon(Link.Icon, Link.IconIndex);
-			else 
+			Icon = CSbieView__GetCachedWindowsIcon(Link.Icon, Link.IconIndex, m_RunMenuWinIconCache);
+			if (Icon.isNull())
 				Icon = theGUI->GetIcon("File");
 		}
-		if (Icon.isNull()) Icon = m_IconProvider.icon(QFileInfo(Link.Target));
+		if (Icon.isNull()) Icon = CSbieView__GetCachedFileIcon(Link.Target, m_IconProvider, m_RunMenuFileIconCache);
 		pAction->setIcon(Icon);
 		QString Command;
 		if(Link.Target.contains(" "))
@@ -2216,12 +2283,11 @@ void CSbieView::UpdateRunMenu(const CSandBoxPtr& pBox)
 		if(IconIndex == -1)
 			Icon = theGUI->GetIcon("Internet");
 		else if (!IconFile.isEmpty()) {
-			if(QFile::exists(IconFile))
-				Icon = LoadWindowsIcon(IconFile, IconIndex);
-			else 
+			Icon = CSbieView__GetCachedWindowsIcon(IconFile, IconIndex, m_RunMenuWinIconCache);
+			if (Icon.isNull())
 				Icon = theGUI->GetIcon("File");
 		}
-		if (Icon.isNull()) Icon = m_IconProvider.icon(QFileInfo(CmdFile));
+		if (Icon.isNull()) Icon = CSbieView__GetCachedFileIcon(CmdFile, m_IconProvider, m_RunMenuFileIconCache);
 		pAction->setIcon(Icon);
 		pAction->setData(Entry["Command"].toString());
 		pAction->setProperty("Icon", IconFile);
