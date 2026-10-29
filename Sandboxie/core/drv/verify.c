@@ -505,9 +505,7 @@ SCertInfo Verify_CertInfo = { 0 };
 
 _FX NTSTATUS KphValidateCertificate()
 {
-	BOOLEAN CertDbg = FALSE;
 	NTSTATUS status;
-
 	status = STATUS_SUCCESS;
 	Verify_CertInfo.active = 1;	
 	Verify_CertInfo.type = eCertEternal;
@@ -516,7 +514,6 @@ _FX NTSTATUS KphValidateCertificate()
 	Verify_CertInfo.opt_net = 1;
 	Verify_CertInfo.opt_enc = 1;
 	Verify_CertInfo.opt_sec = 1;
-	expiration_date.QuadPart = -1; // at the end of time (never)
 	
 	return status;
 }
