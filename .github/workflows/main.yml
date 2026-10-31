@@ -127,18 +127,6 @@ jobs:
       - name: Merging Build
         run: Installer\copy_build.cmd x64 build_qt6
 
-      - name: Collect installer assets
-        run: Installer\get_assets.cmd
-
-      - name: Upload installer assets
-        #if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: Assets
-          path: |
-            Installer/Assets/*
-          retention-days: 60
-
       - name: Upload Sandboxie x64
         #if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7.0.2
@@ -156,17 +144,23 @@ jobs:
           id: genver
           run: echo "TAG=$(date -u +'%Y%m%d-%H%M')" >> $GITHUB_OUTPUT
   
-        - name: Download Assets artifact
+        - name: Download ALL artifacts into one folder
           uses: actions/download-artifact@v4
           with:
-            name: Assets
-            path: ./Assets
+            path: ./bundle
+            merge-multiple: true
   
-        - name: Download Sandboxie_x64 artifact
-          uses: actions/download-artifact@v4
-          with:
-            name: Sandboxie_x64
-            path: ./Sandboxie_x64
+        - name: Debug list bundle files
+          run: |
+            echo "=== bundle root ==="
+            ls -la ./bundle
+            echo "=== all files ==="
+            find ./bundle -type f
+  
+        - name: Zip all artifacts into one package
+          run: |
+            cd bundle
+            zip -r ../SandboxiePlus-${{ steps.genver.outputs.TAG }}.zip .
   
         - name: Create Release
           uses: softprops/action-gh-release@v2
@@ -174,12 +168,11 @@ jobs:
             tag_name: ${{ steps.genver.outputs.TAG }}
             name: Release ${{ steps.genver.outputs.TAG }}
             body: |
-              自动构建发布
+              自动构建发布（打包单压缩包）
               构建时间(UTC): ${{ steps.genver.outputs.TAG }}
               Commit: ${{ github.sha }}
               提交信息: ${{ github.event.head_commit.message }}
             prerelease: false
             generate_release_notes: true
             files: |
-              ./Assets/**
-              ./Sandboxie_x64/**
+              SandboxiePlus-${{ steps.genver.outputs.TAG }}.zip
