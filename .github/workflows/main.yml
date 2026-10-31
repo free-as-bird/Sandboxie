@@ -160,7 +160,7 @@ jobs:
         - name: Zip all artifacts into one package
           run: |
             cd bundle
-            zip -r ../SandboxiePlus-${{ steps.genver.outputs.TAG }}.zip .
+            zip -r ../Sandboxie_x64.zip .
   
         - name: Create Release
           uses: softprops/action-gh-release@v2
@@ -168,11 +168,11 @@ jobs:
             tag_name: ${{ steps.genver.outputs.TAG }}
             name: Release ${{ steps.genver.outputs.TAG }}
             body: |
-              自动构建发布（打包单压缩包）
+              自动构建发布
               构建时间(UTC): ${{ steps.genver.outputs.TAG }}
               Commit: ${{ github.sha }}
               提交信息: ${{ github.event.head_commit.message }}
             prerelease: false
             generate_release_notes: true
             files: |
-              SandboxiePlus-${{ steps.genver.outputs.TAG }}.zip
+              Sandboxie_x64.zip
