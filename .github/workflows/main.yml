@@ -148,38 +148,38 @@ jobs:
             Installer/SbiePlus_x64/*
           retention-days: 60
 
-release:
-    needs: Build_x64_Qt6
-    runs-on: ubuntu-latest
-    steps:
-      - name: Generate version tag (UTC time)
-        id: genver
-        run: echo "TAG=$(date -u +'%Y%m%d-%H%M')" >> $GITHUB_OUTPUT
-
-      - name: Download Assets artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: Assets
-          path: ./Assets
-
-      - name: Download Sandboxie_x64 artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: Sandboxie_x64
-          path: ./Sandboxie_x64
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.genver.outputs.TAG }}
-          name: Release ${{ steps.genver.outputs.TAG }}
-          body: |
-            自动构建发布
-            构建时间(UTC): ${{ steps.genver.outputs.TAG }}
-            Commit: ${{ github.sha }}
-            提交信息: ${{ github.event.head_commit.message }}
-          prerelease: false # false = 正式版；改成true就是测试版
-          generate_release_notes: true
-          files: |
-            ./Assets/**
-            ./Sandboxie_x64/**
+  release:
+      needs: Build_x64_Qt6
+      runs-on: ubuntu-latest
+      steps:
+        - name: Generate version tag (UTC time)
+          id: genver
+          run: echo "TAG=$(date -u +'%Y%m%d-%H%M')" >> $GITHUB_OUTPUT
+  
+        - name: Download Assets artifact
+          uses: actions/download-artifact@v4
+          with:
+            name: Assets
+            path: ./Assets
+  
+        - name: Download Sandboxie_x64 artifact
+          uses: actions/download-artifact@v4
+          with:
+            name: Sandboxie_x64
+            path: ./Sandboxie_x64
+  
+        - name: Create Release
+          uses: softprops/action-gh-release@v2
+          with:
+            tag_name: ${{ steps.genver.outputs.TAG }}
+            name: Release ${{ steps.genver.outputs.TAG }}
+            body: |
+              自动构建发布
+              构建时间(UTC): ${{ steps.genver.outputs.TAG }}
+              Commit: ${{ github.sha }}
+              提交信息: ${{ github.event.head_commit.message }}
+            prerelease: false
+            generate_release_notes: true
+            files: |
+              ./Assets/**
+              ./Sandboxie_x64/**
